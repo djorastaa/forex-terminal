@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Forex Terminal</title>
+<style>
+:root{--bg:#0b0f15;--panel:#131a24;--border:#263141;--text:#e6edf5;--muted:#8794a7;--blue:#4d92ee;--green:#3ac98b;--red:#ef5d67;--amber:#f3ad43}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.wrap{max-width:760px;margin:auto;padding:18px 14px 50px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}
+h1{font-size:22px;margin:0}.status{font-size:12px;border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--muted)}
+.pairs{display:flex;gap:8px;overflow:auto;padding-bottom:8px}.pairs button,.action{border:1px solid var(--border);background:var(--panel);color:var(--muted);border-radius:9px;padding:10px 15px;font-weight:700}
+.pairs button.active{background:var(--blue);color:white;border-color:var(--blue)}.panel{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:16px;margin-top:14px}
+.label{font-size:12px;color:var(--muted);font-weight:700;letter-spacing:.5px}.price{font-size:34px;font-weight:800;margin:8px 0}.signal{font-size:26px;font-weight:900}
+.buy{color:var(--green)}.sell{color:var(--red)}.neutral{color:var(--muted)}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:15px}
+.item{background:#0e141d;border-radius:10px;padding:12px}.item small{display:block;color:var(--muted);margin-bottom:5px}.item strong{font-family:ui-monospace,monospace}
+.action{width:100%;color:white;background:var(--blue);margin-top:12px}.action:disabled{opacity:.5}.msg{color:var(--muted);line-height:1.5;white-space:pre-wrap}.error{color:var(--red);margin-top:10px}
+.note{font-size:12px;color:var(--muted);line-height:1.5;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+ <div class="top"><h1>Forex Terminal</h1><div class="status" id="status">Connexion…</div></div>
+ <div class="pairs" id="pairs"></div>
+
+ <div class="panel">
+   <div class="label" id="symbolLabel">EUR/USD · H1</div>
+   <div class="price" id="price">—</div>
+   <div class="signal neutral" id="signal">ANALYSE EN COURS</div>
+   <div class="error" id="error"></div>
+ </div>
+
+ <div class="panel">
+   <div class="label">PLAN DE TRADE INDICATIF</div>
+   <div class="grid">
+    <div class="item"><small>Entrée</small><strong id="entry">—</strong></div>
+    <div class="item"><small>Stop Loss</small><strong id="sl">—</strong></div>
+    <div class="item"><small>TP1</small><strong id="tp1">—</strong></div>
+    <div class="item"><small>TP2</small><strong id="tp2">—</strong></div>
+    <div class="item"><small>RSI 14</small><strong id="rsi">—</strong></div>
+    <div class="item"><small>Confiance</small><strong id="confidence">—</strong></div><div class="item"><small>Qualité du setup</small><strong id="stars">—</strong></div><div class="item"><small>Confirmation</small><strong id="confirmation">—</strong></div>
+   </div>
+ </div>
+
+ <div class="panel">
+   <div class="label">LECTURE IA</div>
+   <button class="action" id="aiBtn">Générer l’analyse</button>
+   <div class="msg" id="aiText">L’analyse IA reste manuelle : l’application ne passe aucun ordre.</div>
+ </div>
+
+ <div class="note">Règle stricte : aucun BUY ou SELL sans vraie confirmation et sans setup 4/5 ou 5/5. En dessous, le terminal affiche WAIT. Vérifie toujours le graphique, le spread et les annonces économiques avant une entrée. Aucun ordre n’est envoyé vers MT5.</div>
+</div>
+<script>
+const PAIRS=["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CHF","USD/CAD","XAU/USD"];
+let symbol="EUR/USD", current=null;
+const $=id=>document.getElementById(id);
+function decimals(){return symbol.includes("JPY")?3:(symbol==="XAU/USD"?2:5)}
+function fmt(v){return Number.isFinite(Number(v))?Number(v).toFixed(decimals()):"—"}
+function renderPairs(){
+ const box=$("pairs"); box.innerHTML="";
+ PAIRS.forEach(p=>{const b=document.createElement("button");b.textContent=p.replace("/","");
+ if(p===symbol)b.className="active";b.onclick=()=>{symbol=p;renderPairs();loadMarket()};box.appendChild(b)})
+}
+async function loadMarket(){
+ $("symbolLabel").textContent=symbol+" · H1"; $("status").textContent="Actualisation…"; $("error").textContent="";
+ try{
+   const r=await fetch("/api/market?symbol="+encodeURIComponent(symbol));
+   const raw=await r.text();
+   let data;
+   try{ data=JSON.parse(raw); }
+   catch{ throw new Error("Réponse API invalide. Vérifie que api/market.js est bien dans le dossier api sur GitHub."); }
+   if(!r.ok) throw new Error(data.error||"Erreur de données");
+   current=data;
+   $("price").textContent=fmt(data.price);
+   $("entry").textContent=fmt(data.entry); $("sl").textContent=fmt(data.sl);
+   $("tp1").textContent=fmt(data.tp1); $("tp2").textContent=fmt(data.tp2);
+   $("rsi").textContent=data.rsi.toFixed(1); $("confidence").textContent=data.confidence+"%";$("stars").textContent="★".repeat(data.stars)+"☆".repeat(5-data.stars)+" ("+data.stars+"/5)";$("confirmation").textContent=data.confirmation?"Oui":"Non";
+   const s=$("signal"); s.textContent=data.signal; s.className="signal "+(data.signal==="BUY"?"buy":data.signal==="SELL"?"sell":"neutral");
+   $("status").textContent="Données reçues";
+ }catch(e){$("error").textContent=e.message;$("status").textContent="Erreur"}
+}
+$("aiBtn").onclick=async()=>{
+ if(!current)return;
+ const btn=$("aiBtn");btn.disabled=true;$("aiText").textContent="Analyse en cours…";
+ try{
+  const r=await fetch("/api/analyze",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({symbol,...current})});
+  const raw=await r.text();
+  let data;
+  try{ data=JSON.parse(raw); }
+  catch{ throw new Error("Réponse IA invalide. Vérifie que api/analyze.js est bien dans le dossier api sur GitHub."); }
+  if(!r.ok)throw new Error(data.error||"Erreur IA");
+  $("aiText").textContent=data.text;
+ }catch(e){$("aiText").textContent=e.message}finally{btn.disabled=false}
+};
+renderPairs();loadMarket();setInterval(loadMarket,60000);
+</script>
+</body></html>
